@@ -1,0 +1,11 @@
+Worker ID,Worker Name,Department,Shift
+EMP-101,Rahul Sharma,Office & Admin,OFFICE
+EMP-102,Priya Patel,Production,PLANT_DAY_1
+EMP-103,Amit Kumar,Production,PLANT_DAY_2
+EMP-104,Suresh Raina,Production,PLANT_NIGHT
+EMP-105,Sunita Devi,Sanitation,SWEEPER
+EMP-106,Vikram Singh,Security & Gate,SECURITY_1
+EMP-107,Mohan Lal,Security & Gate,SECURITY_2
+EMP-108,Rajesh Gurjar,Security & Gate,SECURITY_3
+EMP-109,Deepak Verma,Quality Control,PLANT_DAY_1
+EMP-110,Neha Gupta,Office & Admin,OFFICE

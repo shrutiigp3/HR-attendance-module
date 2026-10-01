@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AURA MFG - Manufacturing Working Hours & Overtime Calculation System</title>
+  <meta name="description" content="Industrial Working Hours & Overtime Calculation System with 15-minute grace, monthly late memo rules, half-day thresholds, and overnight shifts.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./index.css">
+</head>
+<body>
+  <div id="app" class="app-layout">
+    <!-- Top Global Header -->
+    <header class="app-header" id="app-header">
+      <div class="header-left">
+        <div class="brand-logo">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
+            <path d="M2 17l10 5 10-5"></path>
+            <path d="M2 12l10 5 10-5"></path>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1 class="brand-title">AURA MFG <span class="brand-sub">Attendance & Overtime Engine</span></h1>
+          <div class="header-badges">
+            <span class="status-pill status-demo">Standalone Demo Engine</span>
+            <span class="status-pill status-rule" title="Shift Start + 15m Grace window">⏱️ 15m Grace</span>
+            <span class="status-pill status-rule" title="First 2 late arrivals allowed free per month">🎯 2 Free Late/Mo</span>
+            <span class="status-pill status-rule" title="₹100 Memo for 3rd and subsequent late occurrences">💰 ₹100 Memo Rule</span>
+            <span class="status-pill status-rule" title="Shift Start + 4 Hours Half-Day Benchmark">⏳ Shift+4h Half-Day</span>
+            <span class="status-pill status-rule" title="Overnight 20:30–08:30 shift logic active">🌙 Overnight Ready</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="header-right">
+        <button id="btn-global-recalc" class="btn btn-secondary btn-sm" title="Re-evaluate all punch logs and monthly counters">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+          Recalculate
+        </button>
+
+        <button id="btn-global-reset-demo" class="btn btn-outline btn-sm" title="Reload clean sample dataset with test cases">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 2v6h6"></path><path d="M21 12A9 9 0 0 0 6 5.3L3 8"></path><path d="M21 22v-6h-6"></path><path d="M3 12a9 9 0 0 0 15 6.7l3-2.7"></path></svg>
+          Reset Demo Data
+        </button>
+
+        <button id="btn-toggle-theme" class="btn btn-icon btn-sm" aria-label="Toggle light or dark theme" title="Toggle Theme">
+          <span id="theme-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+          </span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Navigation Tab Bar -->
+    <nav class="app-nav" id="app-nav">
+      <div class="nav-container">
+        <button class="nav-tab-btn active" data-tab="dashboard" id="nav-dashboard">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+          Dashboard & KPIs
+        </button>
+
+        <button class="nav-tab-btn" data-tab="attendance" id="nav-attendance">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+          Attendance Report
+        </button>
+
+        <button class="nav-tab-btn" data-tab="shifts" id="nav-shifts">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+          Shift Management
+          <span class="nav-count-badge" id="nav-shift-badge">8</span>
+        </button>
+
+        <button class="nav-tab-btn" data-tab="workers" id="nav-workers">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+          Worker Master & Shifts
+          <span class="nav-count-badge" id="nav-worker-badge">12</span>
+        </button>
+
+        <button class="nav-tab-btn" data-tab="raw-punches" id="nav-raw-punches">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+          Raw Punch Ingestion
+        </button>
+
+        <button class="nav-tab-btn" data-tab="anomalies" id="nav-anomalies">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+          Suspicious & Invalid
+          <span class="nav-count-badge badge-danger" id="nav-anomaly-badge" style="display:none;">0</span>
+        </button>
+
+        <button class="nav-tab-btn" data-tab="settings" id="nav-settings">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+          Policy Settings
+        </button>
+      </div>
+    </nav>
+
+    <!-- Main View Content Area -->
+    <main class="app-main">
+      <div class="content-wrapper" id="view-content">
+        <!-- Rendered dynamically by NavigationManager -->
+      </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <div class="footer-container">
+        <div class="text-xs text-secondary">
+          <strong>AURA MFG Calculation Engine</strong> • Architecture: Independent Calculation Core (Ready for Direct SQL Server / Secureye / OnTime API Integration).
+        </div>
+        <div class="text-xs text-secondary">
+          15-min Grace • 2 Free Late/Mo • ₹100 Memo • Shift+4h Half-Day • Overnight 20:30–08:30 Logic
+        </div>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Reusable Modal Container -->
+  <div id="modal-container" class="modal-container"></div>
+
+  <!-- Application Script Entry Point -->
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
