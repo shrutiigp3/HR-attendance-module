@@ -37,6 +37,13 @@ document.addEventListener('DOMContentLoaded', () => {
     showToast('All attendance records recalculated!');
   });
 
+  // Salary details from public/salary-details.json, once the saved data has loaded
+  store.ready
+    .then(() => store.applySalaryDetailsFile())
+    .then(count => {
+      if (count) showToast(`Salary details filled for ${count} workers (MC / Operation, Salary type, Shift Hours)`);
+    });
+
   // 3. Initialize Navigation
   const nav = new NavigationManager();
   nav.init();

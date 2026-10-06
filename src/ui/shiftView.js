@@ -5,7 +5,7 @@
 
 import { store } from '../data/dataStore.js';
 import { modal } from './modalManager.js';
-import { parseTimeToMinutes, formatDuration } from '../engine/timeUtils.js';
+import { parseTimeToMinutes, formatDuration, isOfficeShift } from '../engine/timeUtils.js';
 import { shiftNameFromId } from '../utils/excelUtils.js';
 
 export function renderShiftManagement(container) {
@@ -100,7 +100,7 @@ export function renderShiftManagement(container) {
                 </div>
                 <div class="shift-detail-row">
                   <span class="detail-label">Overtime Starts:</span>
-                  <span class="detail-val font-mono">${flexible ? `After ${formatDuration(durationMin)} + ${store.config.otThresholdMinutes}m worked` : `${shift.endTime} + ${store.config.otThresholdMinutes}m`}</span>
+                  <span class="detail-val font-mono">${isOfficeShift(shift) ? 'None (Office Shift)' : (flexible ? `After ${formatDuration(durationMin)} + ${store.config.otThresholdMinutes}m worked` : `After ${shift.endTime} + ${store.config.otThresholdMinutes}m`)}</span>
                 </div>
                 <div class="shift-detail-row">
                   <span class="detail-label">Assigned Workers:</span>
@@ -256,6 +256,14 @@ function openShiftFormModal(existingShift = null, prefill = {}) {
         <input type="text" id="shift-desc" class="form-control" value="${existingShift ? (existingShift.description || '') : ''}" placeholder="e.g. Operations shift for packaging unit">
       </div>
 
+      <div class="form-group">
+        <label class="checkbox-container">
+          <input type="checkbox" id="shift-pay-ot" ${existingShift ? (existingShift.payOvertime !== false && !isOfficeShift(existingShift)) : !isOfficeShift(initial)}>
+          <span class="checkmark"></span>
+          <span><strong>Eligible for Overtime (OT):</strong> Uncheck for Office / Admin shifts where overtime is not considered</span>
+        </label>
+      </div>
+
       <div class="form-actions mt-4">
         <button type="button" class="btn btn-secondary" id="btn-cancel-shift">Cancel</button>
         <button type="submit" class="btn btn-primary">${isEdit ? 'Save Changes' : 'Create Shift'}</button>
@@ -320,6 +328,7 @@ function openShiftFormModal(existingShift = null, prefill = {}) {
       name,
       ...timing,
       weeklyOff,
+      payOvertime: document.getElementById('shift-pay-ot').checked,
       description,
       isActive: existingShift ? existingShift.isActive : true
     };

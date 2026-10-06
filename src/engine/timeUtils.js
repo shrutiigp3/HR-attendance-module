@@ -171,3 +171,17 @@ export function getCycleRange(cycleKey, cycleStartDay = 1) {
     label: `${name} (${from.getUTCDate()} ${MONTH_NAMES[from.getUTCMonth()]} – ${to.getUTCDate()} ${MONTH_NAMES[to.getUTCMonth()]})`
   };
 }
+
+/**
+ * Checks whether a shift is an office shift (no overtime consideration)
+ * @param {Object} shift
+ * @returns {boolean}
+ */
+export function isOfficeShift(shift) {
+  if (!shift) return false;
+  if (shift.payOvertime === false) return true;
+  if (shift.isOffice === true) return true;
+  const id = String(shift.id || '').toUpperCase();
+  const name = String(shift.name || '').toLowerCase();
+  return id === 'OFFICE' || id.includes('OFFICE') || name.includes('office');
+}

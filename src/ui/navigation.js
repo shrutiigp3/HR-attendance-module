@@ -6,6 +6,8 @@
 import { store } from '../data/dataStore.js';
 import { renderDashboard } from './dashboardView.js';
 import { renderAttendanceReport } from './attendanceView.js';
+import { renderSalaryView } from './salaryView.js';
+import { renderHolidayCalendar } from './holidayView.js';
 import { renderShiftManagement } from './shiftView.js';
 import { renderWorkerManagement } from './workerView.js';
 import { renderRawPunchView } from './rawPunchView.js';
@@ -49,7 +51,7 @@ export class NavigationManager {
   }
 
   navigateTo(tabName, updateHash = true) {
-    const validTabs = ['dashboard', 'attendance', 'shifts', 'workers', 'raw-punches', 'anomalies', 'settings'];
+    const validTabs = ['dashboard', 'attendance', 'salary', 'holidays', 'shifts', 'workers', 'raw-punches', 'anomalies', 'settings'];
     const activeTab = validTabs.includes(tabName) ? tabName : 'dashboard';
 
     this.currentTab = activeTab;
@@ -87,6 +89,12 @@ export class NavigationManager {
         break;
       case 'attendance':
         renderAttendanceReport(this.container);
+        break;
+      case 'salary':
+        renderSalaryView(this.container);
+        break;
+      case 'holidays':
+        renderHolidayCalendar(this.container);
         break;
       case 'shifts':
         renderShiftManagement(this.container);

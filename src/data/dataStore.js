@@ -7,13 +7,28 @@ import { INITIAL_SHIFTS, INITIAL_CONFIG } from './defaultSettings.js';
 import { SAMPLE_WORKERS, SAMPLE_RAW_PUNCHES } from './sampleData.js';
 import { AttendanceCalculationEngine } from '../engine/calculationEngine.js';
 import { idbGet, idbSet, idbDelete } from './dbStorage.js';
+import { DEFAULT_SALARY_CONFIG, SALARY_PROFILE_FIELDS } from '../engine/salaryEngine.js';
 
 const STORAGE_KEYS = {
   SHIFTS: 'mfg_att_shifts_v1',
   WORKERS: 'mfg_att_workers_v1',
   RAW_PUNCHES: 'mfg_att_raw_punches_v1',
-  CONFIG: 'mfg_att_config_v1'
+  CONFIG: 'mfg_att_config_v1',
+  SALARY: 'mfg_att_salary_v1',
+  HOLIDAYS: 'mfg_att_holidays_v1'
 };
+
+// Salary sheet data: per-worker details kept across cycles, and per-cycle values
+// (approved leaves, other, advance, loan, statutory overrides), both keyed by lower-case worker ID
+const emptySalaryData = () => ({ profiles: {}, inputs: {} });
+
+// Overtime pay became 1.5× by default. Salary settings saved earlier with the old 1× default are
+// moved to 1.5× once; a rate chosen in Salary Settings afterwards is kept (otRateConfirmed).
+function withCurrentOtRate(config) {
+  const salary = config.salary;
+  if (!salary || salary.otRateConfirmed || salary.otRateMultiplier !== 1) return config;
+  return { ...config, salary: { ...salary, otRateMultiplier: 1.5, otRateConfirmed: true } };
+}
 
 class DataStore {
   constructor() {
@@ -31,14 +46,15 @@ class DataStore {
     };
 
     this.loadFromStorage();
-    this.initAsyncStorage();
+    // Resolves once the saved data has been loaded from IndexedDB
+    this.ready = this.initAsyncStorage();
   }
 
   loadFromStorage() {
     try {
       const savedConfig = localStorage.getItem(STORAGE_KEYS.CONFIG);
       // Defaults first so settings added later (e.g. cycleStartDay) apply to older saved configs
-      this.config = { ...INITIAL_CONFIG, ...(savedConfig ? JSON.parse(savedConfig) : {}) };
+      this.config = withCurrentOtRate({ ...INITIAL_CONFIG, ...(savedConfig ? JSON.parse(savedConfig) : {}) });
 
       const savedShifts = localStorage.getItem(STORAGE_KEYS.SHIFTS);
       this.shifts = savedShifts ? JSON.parse(savedShifts) : JSON.parse(JSON.stringify(INITIAL_SHIFTS));
@@ -48,12 +64,20 @@ class DataStore {
 
       const savedPunches = localStorage.getItem(STORAGE_KEYS.RAW_PUNCHES);
       this.rawPunches = savedPunches ? JSON.parse(savedPunches) : JSON.parse(JSON.stringify(SAMPLE_RAW_PUNCHES));
+
+      const savedSalary = localStorage.getItem(STORAGE_KEYS.SALARY);
+      this.salary = savedSalary ? { ...emptySalaryData(), ...JSON.parse(savedSalary) } : emptySalaryData();
+
+      const savedHolidays = localStorage.getItem(STORAGE_KEYS.HOLIDAYS);
+      this.holidays = savedHolidays ? JSON.parse(savedHolidays) : [];
     } catch (e) {
       console.warn('Could not load from localStorage, using initial defaults', e);
       this.config = { ...INITIAL_CONFIG };
       this.shifts = JSON.parse(JSON.stringify(INITIAL_SHIFTS));
       this.workers = JSON.parse(JSON.stringify(SAMPLE_WORKERS));
       this.rawPunches = JSON.parse(JSON.stringify(SAMPLE_RAW_PUNCHES));
+      this.salary = emptySalaryData();
+      this.holidays = [];
     }
 
     this.engine.setConfig(this.config);
@@ -62,17 +86,19 @@ class DataStore {
 
   async initAsyncStorage() {
     try {
-      const [idbWorkers, idbPunches, idbShifts, idbConfig] = await Promise.all([
+      const [idbWorkers, idbPunches, idbShifts, idbConfig, idbSalary, idbHolidays] = await Promise.all([
         idbGet(STORAGE_KEYS.WORKERS),
         idbGet(STORAGE_KEYS.RAW_PUNCHES),
         idbGet(STORAGE_KEYS.SHIFTS),
-        idbGet(STORAGE_KEYS.CONFIG)
+        idbGet(STORAGE_KEYS.CONFIG),
+        idbGet(STORAGE_KEYS.SALARY),
+        idbGet(STORAGE_KEYS.HOLIDAYS)
       ]);
 
       let changed = false;
 
       if (idbConfig && typeof idbConfig === 'object') {
-        this.config = { ...this.config, ...idbConfig };
+        this.config = withCurrentOtRate({ ...this.config, ...idbConfig });
         this.engine.setConfig(this.config);
         changed = true;
       }
@@ -92,6 +118,16 @@ class DataStore {
         changed = true;
       }
 
+      if (idbSalary && typeof idbSalary === 'object') {
+        this.salary = { ...emptySalaryData(), ...idbSalary };
+        changed = true;
+      }
+
+      if (Array.isArray(idbHolidays)) {
+        this.holidays = idbHolidays;
+        changed = true;
+      }
+
       if (changed) {
         this.recalculate();
         this.notify();
@@ -107,6 +143,8 @@ class DataStore {
     idbSet(STORAGE_KEYS.SHIFTS, this.shifts);
     idbSet(STORAGE_KEYS.WORKERS, this.workers);
     idbSet(STORAGE_KEYS.RAW_PUNCHES, this.rawPunches);
+    idbSet(STORAGE_KEYS.SALARY, this.salary);
+    idbSet(STORAGE_KEYS.HOLIDAYS, this.holidays);
 
     // 2. Safe sync to localStorage for quick boot when dataset is compact (< 2000 rows)
     try {
@@ -118,6 +156,8 @@ class DataStore {
       if (this.rawPunches.length <= 2500) {
         localStorage.setItem(STORAGE_KEYS.RAW_PUNCHES, JSON.stringify(this.rawPunches));
       }
+      localStorage.setItem(STORAGE_KEYS.SALARY, JSON.stringify(this.salary));
+      localStorage.setItem(STORAGE_KEYS.HOLIDAYS, JSON.stringify(this.holidays));
     } catch (e) {
       // LocalStorage quota exceeded, safely captured in IndexedDB
     }
@@ -128,6 +168,8 @@ class DataStore {
     this.shifts = JSON.parse(JSON.stringify(INITIAL_SHIFTS));
     this.workers = JSON.parse(JSON.stringify(SAMPLE_WORKERS));
     this.rawPunches = JSON.parse(JSON.stringify(SAMPLE_RAW_PUNCHES));
+    this.salary = emptySalaryData();
+    this.holidays = [];
     this.engine.setConfig(this.config);
     this.saveToStorage();
     this.recalculate();
@@ -159,6 +201,89 @@ class DataStore {
     this.engine.setConfig(this.config);
     this.saveToStorage();
     this.recalculate();
+    this.notify();
+  }
+
+  // --- SALARY ---
+  get salaryConfig() {
+    return { ...DEFAULT_SALARY_CONFIG, ...(this.config.salary || {}) };
+  }
+
+  // Salary settings don't affect attendance, so no recalculation is needed
+  updateSalaryConfig(changes) {
+    this.config = { ...this.config, salary: { ...this.salaryConfig, ...changes, otRateConfirmed: true } };
+    this.saveToStorage();
+    this.notify();
+  }
+
+  /**
+   * Saves one value typed into the salary sheet. Per-worker fields (SALARY_PROFILE_FIELDS) are kept
+   * for every cycle; the rest belong to this cycle. An empty value clears it (back to calculated).
+   * Doesn't notify: the salary view redraws itself so keyboard focus can move on to the next cell.
+   */
+  setSalaryValue(workerId, cycleKey, field, value) {
+    const key = String(workerId).toLowerCase();
+    const isProfileField = SALARY_PROFILE_FIELDS.includes(field);
+    const current = isProfileField ? this.salary.profiles[key] : this.salary.inputs[cycleKey]?.[key];
+    const updated = { ...(current || {}) };
+    if (value === '' || value == null) delete updated[field];
+    else updated[field] = value;
+
+    this.salary = isProfileField
+      ? { ...this.salary, profiles: { ...this.salary.profiles, [key]: updated } }
+      : { ...this.salary, inputs: { ...this.salary.inputs, [cycleKey]: { ...(this.salary.inputs[cycleKey] || {}), [key]: updated } } };
+    // Only the salary data changed, so don't rewrite the (large) punch data
+    idbSet(STORAGE_KEYS.SALARY, this.salary);
+    try {
+      localStorage.setItem(STORAGE_KEYS.SALARY, JSON.stringify(this.salary));
+    } catch (e) {
+      // LocalStorage quota exceeded, safely captured in IndexedDB
+    }
+  }
+
+  /**
+   * Fills salary details (MC / Operation, Salary type, Shift Hours) from public/salary-details.json,
+   * a company file kept out of git. Applied once per file version, after the saved data has loaded,
+   * so values typed in the app later are never overwritten. Returns how many workers were filled
+   * (0 when the file is missing or this version was already applied).
+   */
+  async applySalaryDetailsFile(url = '/salary-details.json') {
+    let data;
+    try {
+      const response = await fetch(url, { cache: 'no-store' });
+      if (!response.ok) return 0;
+      data = await response.json();
+    } catch {
+      return 0; // no file (the dev server may answer with the HTML page instead)
+    }
+    if (!data?.version || !Array.isArray(data.workers) || this.salary.detailsFileVersion === data.version) return 0;
+
+    const profiles = { ...this.salary.profiles };
+    for (const entry of data.workers) {
+      const key = String(entry.id).toLowerCase();
+      const values = Object.fromEntries(Object.entries(entry).filter(([field, v]) => SALARY_PROFILE_FIELDS.includes(field) && v !== '' && v != null));
+      profiles[key] = { ...(profiles[key] || {}), ...values };
+    }
+    this.salary = { ...this.salary, profiles, detailsFileVersion: data.version };
+    this.saveToStorage();
+    this.notify();
+    return data.workers.length;
+  }
+
+  // --- HOLIDAY CALENDAR ---
+  // Factory holidays ({ date: 'YYYY-MM-DD', name }) are taken out of Working Days in the salary
+  // calculation; attendance itself doesn't change, so no recalculation is needed
+
+  saveHoliday(date, name) {
+    const holiday = { date, name: String(name || '').trim() || 'Holiday' };
+    this.holidays = [...this.holidays.filter(h => h.date !== date), holiday].sort((a, b) => a.date.localeCompare(b.date));
+    this.saveToStorage();
+    this.notify();
+  }
+
+  removeHoliday(date) {
+    this.holidays = this.holidays.filter(h => h.date !== date);
+    this.saveToStorage();
     this.notify();
   }
 
@@ -227,6 +352,15 @@ class DataStore {
 
   deleteWorker(workerId) {
     this.workers = this.workers.filter(w => w.id !== workerId);
+    this.saveToStorage();
+    this.recalculate();
+    this.notify();
+  }
+
+  // Removes several workers with a single save and recalculation. Their raw punches are kept.
+  deleteWorkers(workerIds) {
+    const remove = new Set(workerIds);
+    this.workers = this.workers.filter(w => !remove.has(w.id));
     this.saveToStorage();
     this.recalculate();
     this.notify();

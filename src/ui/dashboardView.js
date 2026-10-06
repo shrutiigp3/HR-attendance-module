@@ -336,7 +336,7 @@ export function renderDashboard(container) {
         <div class="rule-item">
           <span class="rule-status-dot dot-success"></span>
           <div>
-            <strong>Early Arrival Overtime:</strong> Early arrival is NEVER overtime. Overtime begins strictly 15 minutes after shift end.
+            <strong>Early Arrival & Overtime Rule:</strong> Early arrival is NEVER overtime. Overtime is considered when working beyond scheduled end / required hours exceeds 15 minutes (full excess counted). Office shifts have no overtime.
           </div>
         </div>
         <div class="rule-item">

@@ -12,6 +12,7 @@ export const INITIAL_SHIFTS = [
     weeklyOff: 'Sunday',
     isOvernight: false,
     isActive: true,
+    payOvertime: false,
     description: 'Corporate and Admin Staff'
   },
   {

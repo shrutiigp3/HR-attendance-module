@@ -84,8 +84,8 @@ export function renderSettingsView(container) {
             <!-- 5. Overtime Threshold -->
             <div class="form-group setting-field-group">
               <div class="setting-info">
-                <label for="setting-ot" class="setting-title">Overtime (OT) Threshold After Shift End</label>
-                <p class="setting-desc">OT starts strictly N minutes after scheduled shift end. Early arrival before shift start is never counted as overtime.</p>
+                <label for="setting-ot" class="setting-title">Overtime (OT) Threshold</label>
+                <p class="setting-desc">OT is considered when working beyond scheduled shift end / required hours exceeds N minutes. When exceeded, the full excess is counted as OT. Office shifts have no overtime.</p>
               </div>
               <div class="setting-input-wrapper">
                 <input type="number" id="setting-ot" class="form-control setting-input" min="0" max="120" value="${config.otThresholdMinutes}" required>
@@ -146,8 +146,7 @@ export function renderSettingsView(container) {
             <div class="simulation-item">
               <div class="sim-badge badge-purple">Overtime Benchmark</div>
               <div class="sim-text">
-                Shift ends at 18:00. OT Start = 18:00 + ${config.otThresholdMinutes}m = <strong>18:${String(config.otThresholdMinutes).padStart(2, '0')}</strong>.
-                Departure at 18:30 gives exactly <strong>${Math.max(0, 30 - config.otThresholdMinutes)} minutes OT</strong>.
+                Manufacturing shift ending at 17:00: departure at 17:12 (&le; ${config.otThresholdMinutes}m) gives <strong>0 OT</strong>. Departure at 17:42 (&gt; ${config.otThresholdMinutes}m) gives full <strong>42 minutes OT</strong>. Office shifts have no overtime.
               </div>
             </div>
 

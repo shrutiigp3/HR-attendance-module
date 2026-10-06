@@ -63,6 +63,8 @@ A manufacturing-grade, standalone attendance and overtime calculation system bui
 
 1. **Dashboard:** KPI summary cards, Monthly Late Allowance & Memo Tracker, live rule verification status.
 2. **Attendance Report:** Comprehensive table matching prompt specification with instant search, status filtering, Excel/CSV export, and interactive **Audit Trail** modals.
+   - **Salary Calculation:** salary sheet per salary cycle with the company's own column headers (ID, Full Name, Status, Department, Sub Department, MC / Operation, Salary type, Shift Hours, daily wage, salary, Working Days, Attended Days, extra days, other time, Total Leaves, Approved Leaves, Not App. Leaves, Salary (attended) + Extra Days, Other Amount, Gross Salary, Advance Amount, Loan Amount, Memo Amount, PF / ES / Prof Tax Deduction, Net Pay, Location, Remarks, Payroll Remarks). Salary details are typed straight into the table; attendance figures are calculated from the punches and can be typed over. Working days, half-day value, overtime rate and PF/ES/PT rules are editable under Salary Settings; Excel export uses the same headers.
+   - **Holiday Calendar:** mark factory holidays on a month calendar; they are taken out of Working Days in the salary calculation (a holiday on a worker's weekly off counts once, and working on a holiday counts as an extra day).
 3. **Shift Management:** Add, edit, delete, and toggle shifts (Office, Plant Day 1, Plant Day 2, Plant Night, Sweeper, Security 1/2/3).
 4. **Worker Shift Assignment:** Worker master with manual shift assignment dropdowns, worker edit modal, Excel/CSV worker import, and template download.
 5. **Raw Punch Ingestion:** View raw logs unchanged, upload new raw punches via CSV/Excel, download sample templates.

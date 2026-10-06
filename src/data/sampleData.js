@@ -77,22 +77,22 @@ export const SAMPLE_RAW_PUNCHES = [
   { id: 'P102-3-IN', workerId: 'EMP-102', date: '2026-09-03', time: '08:28', type: 'IN' },
   { id: 'P102-3-OUT', workerId: 'EMP-102', date: '2026-09-03', time: '17:15', type: 'OUT' },
 
-  // Sept 4: OUT at 17:16 -> 1 minute OT!
+  // Sept 4: OUT at 17:16 -> 16 minutes OT (excess 16m > 15m threshold -> full 16m)
   { id: 'P102-4-IN', workerId: 'EMP-102', date: '2026-09-04', time: '08:30', type: 'IN' },
   { id: 'P102-4-OUT', workerId: 'EMP-102', date: '2026-09-04', time: '17:16', type: 'OUT' },
 
-  // Sept 5: OUT at 17:30 -> 15 minutes OT!
+  // Sept 5: OUT at 17:30 -> 30 minutes OT (excess 30m > 15m threshold -> full 30m)
   { id: 'P102-5-IN', workerId: 'EMP-102', date: '2026-09-05', time: '08:25', type: 'IN' },
   { id: 'P102-5-OUT', workerId: 'EMP-102', date: '2026-09-05', time: '17:30', type: 'OUT' },
 
-  // Sept 6: OUT at 18:00 -> 45 minutes OT!
+  // Sept 6: OUT at 18:00 -> 60 minutes OT (excess 60m > 15m threshold -> full 60m / 1h)
   { id: 'P102-6-IN', workerId: 'EMP-102', date: '2026-09-06', time: '08:20', type: 'IN' },
   { id: 'P102-6-OUT', workerId: 'EMP-102', date: '2026-09-06', time: '18:00', type: 'OUT' },
 
   // ==========================================
   // 3. SURESH RAINA (EMP-104, PLANT NIGHT: 20:30 - 08:30)
   // Overnight shift logic: IN Sept 15 20:20, OUT Sept 16 09:30
-  // OT begins at 08:30 + 15m = 08:45 -> OUT 09:30 = 45 min OT
+  // Shift end 08:30, OUT 09:30 = 60m excess (> 15m threshold) -> 60 min OT
   // Associated with September 15 shift!
   // ==========================================
   { id: 'P104-1-IN', workerId: 'EMP-104', date: '2026-09-15', time: '20:20', type: 'IN' },

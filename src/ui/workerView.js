@@ -45,6 +45,7 @@ export function renderWorkerManagement(container) {
   }
 
   const distinctDepts = Array.from(departmentsSet).sort();
+  const deptWorkerCount = workerState.department === 'ALL' ? 0 : workers.filter(w => w.department === workerState.department).length;
 
   // Filter workers in memory (takes ~3ms for 55,000 items)
   const q = workerState.search.trim().toLowerCase();
@@ -153,6 +154,12 @@ export function renderWorkerManagement(container) {
             <button id="btn-reset-worker-filters" class="btn btn-secondary btn-sm" title="Reset Filters">Reset</button>
           </div>
         </div>
+        ${workerState.department !== 'ALL' ? `
+          <div class="flex justify-between items-center" style="margin-top: 10px;">
+            <span class="text-secondary text-sm">${deptWorkerCount} worker(s) in department "${workerState.department}"</span>
+            <button id="btn-remove-department" class="btn btn-danger-outline btn-sm">Remove all ${deptWorkerCount} workers in "${workerState.department}"</button>
+          </div>
+        ` : ''}
       </div>
 
       <!-- Top Pagination Bar -->
@@ -302,6 +309,20 @@ export function renderWorkerManagement(container) {
     renderWorkerManagement(container);
   });
 
+  // Bulk removal of every worker in the selected department (e.g. contractors), after confirmation
+  document.getElementById('btn-remove-department')?.addEventListener('click', () => {
+    const dept = workerState.department;
+    const ids = store.workers.filter(w => w.department === dept).map(w => w.id);
+    if (ids.length === 0) return;
+    const message = `Remove all ${ids.length} workers in department "${dept}" from Worker Master?\n\n`
+      + 'Their raw punches are kept, but they will no longer appear in Attendance, Days Present or Salary. This cannot be undone.';
+    if (!confirm(message)) return;
+    workerState.department = 'ALL';
+    workerState.page = 1;
+    store.deleteWorkers(ids);
+    showToast(`Removed ${ids.length} workers in "${dept}"`);
+  });
+
   // Action Buttons
   document.getElementById('btn-add-worker')?.addEventListener('click', () => {
     openWorkerFormModal();
@@ -352,6 +373,8 @@ function openWorkerFormModal(existingWorker = null) {
   const isEdit = !!existingWorker;
   const shifts = store.shifts;
   const departments = DEPARTMENTS;
+  const subDepartments = [...new Set(store.workers.map(w => (w.subDepartment || '').trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b));
 
   const contentHtml = `
     <form id="worker-modal-form" class="modal-form">
@@ -370,6 +393,14 @@ function openWorkerFormModal(existingWorker = null) {
         <input type="text" id="worker-dept" list="dept-options" class="form-control" value="${existingWorker ? existingWorker.department : 'Production'}" placeholder="Select or type department">
         <datalist id="dept-options">
           ${departments.map(d => `<option value="${d}">`).join('')}
+        </datalist>
+      </div>
+
+      <div class="form-group">
+        <label for="worker-subdept">Sub Department</label>
+        <input type="text" id="worker-subdept" list="subdept-options" class="form-control" value="${existingWorker ? existingWorker.subDepartment || '' : ''}" placeholder="Select or type sub department">
+        <datalist id="subdept-options">
+          ${subDepartments.map(d => `<option value="${d}">`).join('')}
         </datalist>
       </div>
 
@@ -414,6 +445,7 @@ function openWorkerFormModal(existingWorker = null) {
     const id = document.getElementById('worker-id').value.trim();
     const name = document.getElementById('worker-name').value.trim();
     const department = document.getElementById('worker-dept').value.trim() || 'General';
+    const subDepartment = document.getElementById('worker-subdept').value.trim();
     const shiftId = document.getElementById('worker-shift').value;
     const isActive = document.getElementById('worker-active').checked;
 
@@ -422,7 +454,7 @@ function openWorkerFormModal(existingWorker = null) {
       return;
     }
 
-    const workerData = { id, name, department, shiftId, isActive };
+    const workerData = { id, name, department, subDepartment, shiftId, isActive };
 
     if (isEdit) {
       // Keep imported fields the form doesn't show (designation, weekly off)

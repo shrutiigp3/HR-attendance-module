@@ -34,8 +34,9 @@ const engine = new AttendanceCalculationEngine({
 });
 
 const shifts = [
-  { id: 'OFFICE', name: 'Office', startTime: '09:00', endTime: '18:00', isOvernight: false, weeklyOff: 'Sunday', isActive: true },
+  { id: 'OFFICE', name: 'Office', startTime: '09:00', endTime: '18:00', isOvernight: false, weeklyOff: 'Sunday', isActive: true, payOvertime: false },
   { id: 'PLANT_DAY_1', name: 'Plant Day 1', startTime: '08:30', endTime: '17:00', isOvernight: false, weeklyOff: 'Thursday', isActive: true },
+  { id: 'PLANT_DAY_2', name: 'Plant Day 2', startTime: '09:00', endTime: '18:00', isOvernight: false, weeklyOff: 'Sunday', isActive: true },
   { id: 'PLANT_NIGHT', name: 'Plant Night', startTime: '20:30', endTime: '08:30', isOvernight: true, weeklyOff: 'Thursday', isActive: true }
 ];
 
@@ -165,55 +166,86 @@ const amitHalf = result2.records.find(r => r.workerId === 'W202' && r.date === '
 assertEqual(amitHalf.isHalfDay, true, 'Amit arriving at 12:35 (after 12:30 for 08:30 shift) is Half Day');
 
 
-// Test 3: Prompt Section 7 - Overtime Rule (Exact Prompt Table & Early Arrival Rule)
+// Test 3: Prompt Section 7 - Overtime Rule & Early Arrival Rule
 console.log('\nTest Suite 3: Overtime Calculations & Early Arrival (Exact Prompt Table)');
-const workerOT = [{ id: 'W301', name: 'Vikram Singh', department: 'Production', shiftId: 'OFFICE', isActive: true }];
+const workerOT = [
+  { id: 'W301', name: 'Vikram Singh', department: 'Production', shiftId: 'PLANT_DAY_2', isActive: true },
+  { id: 'W302', name: 'Office Staff', department: 'HR', shiftId: 'OFFICE', isActive: true }
+];
 
 const punchesOT = [
   // Early arrival IN 08:30, OUT 18:00 -> Early arrival NEVER OT!
   { workerId: 'W301', date: '2026-09-01', time: '08:30', type: 'IN' },
   { workerId: 'W301', date: '2026-09-01', time: '18:00', type: 'OUT' },
 
-  // Early arrival IN 08:50, OUT 18:10 -> 0 OT
+  // Early arrival IN 08:50, OUT 18:10 -> 0 OT (10m <= 15m threshold)
   { workerId: 'W301', date: '2026-09-02', time: '08:50', type: 'IN' },
   { workerId: 'W301', date: '2026-09-02', time: '18:10', type: 'OUT' },
 
-  // OUT 18:15 -> 0 OT (Exact at threshold)
+  // OUT 18:12 -> 0 OT (12m <= 15m threshold)
   { workerId: 'W301', date: '2026-09-03', time: '09:00', type: 'IN' },
-  { workerId: 'W301', date: '2026-09-03', time: '18:15', type: 'OUT' },
+  { workerId: 'W301', date: '2026-09-03', time: '18:12', type: 'OUT' },
 
-  // OUT 18:16 -> 1 minute OT
+  // OUT 18:15 -> 0 OT (Exact at 15m threshold)
   { workerId: 'W301', date: '2026-09-04', time: '09:00', type: 'IN' },
-  { workerId: 'W301', date: '2026-09-04', time: '18:16', type: 'OUT' },
+  { workerId: 'W301', date: '2026-09-04', time: '18:15', type: 'OUT' },
 
-  // OUT 18:30 -> 15 minutes OT
+  // OUT 18:16 -> 16 minutes OT (excess > 15m -> full 16m counted)
   { workerId: 'W301', date: '2026-09-05', time: '09:00', type: 'IN' },
-  { workerId: 'W301', date: '2026-09-05', time: '18:30', type: 'OUT' },
+  { workerId: 'W301', date: '2026-09-05', time: '18:16', type: 'OUT' },
 
-  // OUT 19:00 -> 45 minutes OT
+  // OUT 18:30 -> 30 minutes OT (excess > 15m -> full 30m counted)
   { workerId: 'W301', date: '2026-09-06', time: '09:00', type: 'IN' },
-  { workerId: 'W301', date: '2026-09-06', time: '19:00', type: 'OUT' },
+  { workerId: 'W301', date: '2026-09-06', time: '18:30', type: 'OUT' },
+
+  // OUT 18:42 -> 42 minutes OT (8h shift, worked 8h 42m -> full 42m counted)
+  { workerId: 'W301', date: '2026-09-07', time: '09:00', type: 'IN' },
+  { workerId: 'W301', date: '2026-09-07', time: '18:42', type: 'OUT' },
+
+  // OUT 19:00 -> 60 minutes OT (excess > 15m -> full 60m counted)
+  { workerId: 'W301', date: '2026-09-08', time: '09:00', type: 'IN' },
+  { workerId: 'W301', date: '2026-09-08', time: '19:00', type: 'OUT' },
+
+  // Office Shift: OUT 18:42 -> 0 OT (No overtime consideration for office shift)
+  { workerId: 'W302', date: '2026-09-07', time: '09:00', type: 'IN' },
+  { workerId: 'W302', date: '2026-09-07', time: '18:42', type: 'OUT' },
+
+  // Office Shift: OUT 19:00 -> 0 OT (No overtime consideration for office shift)
+  { workerId: 'W302', date: '2026-09-08', time: '09:00', type: 'IN' },
+  { workerId: 'W302', date: '2026-09-08', time: '19:00', type: 'OUT' },
 ];
 
 const result3 = engine.processAttendance(workerOT, shifts, punchesOT);
 
-const otDay1 = result3.records.find(r => r.date === '2026-09-01');
+const otDay1 = result3.records.find(r => r.workerId === 'W301' && r.date === '2026-09-01');
 assertEqual(otDay1.otMinutes, 0, 'IN 08:30, OUT 18:00 has 0 OT (Early arrival is NEVER OT)');
 
-const otDay2 = result3.records.find(r => r.date === '2026-09-02');
-assertEqual(otDay2.otMinutes, 0, 'OUT 18:10 has 0 OT');
+const otDay2 = result3.records.find(r => r.workerId === 'W301' && r.date === '2026-09-02');
+assertEqual(otDay2.otMinutes, 0, 'OUT 18:10 has 0 OT (10m <= 15m threshold)');
 
-const otDay3 = result3.records.find(r => r.date === '2026-09-03');
-assertEqual(otDay3.otMinutes, 0, 'OUT 18:15 has 0 OT');
+const otDay3 = result3.records.find(r => r.workerId === 'W301' && r.date === '2026-09-03');
+assertEqual(otDay3.otMinutes, 0, 'OUT 18:12 has 0 OT (12m <= 15m threshold)');
 
-const otDay4 = result3.records.find(r => r.date === '2026-09-04');
-assertEqual(otDay4.otMinutes, 1, 'OUT 18:16 has 1 minute OT');
+const otDay4 = result3.records.find(r => r.workerId === 'W301' && r.date === '2026-09-04');
+assertEqual(otDay4.otMinutes, 0, 'OUT 18:15 has 0 OT (exact 15m threshold)');
 
-const otDay5 = result3.records.find(r => r.date === '2026-09-05');
-assertEqual(otDay5.otMinutes, 15, 'OUT 18:30 has 15 minutes OT');
+const otDay5 = result3.records.find(r => r.workerId === 'W301' && r.date === '2026-09-05');
+assertEqual(otDay5.otMinutes, 16, 'OUT 18:16 has 16 minutes OT (full excess when > 15m threshold)');
 
-const otDay6 = result3.records.find(r => r.date === '2026-09-06');
-assertEqual(otDay6.otMinutes, 45, 'OUT 19:00 has 45 minutes OT');
+const otDay6 = result3.records.find(r => r.workerId === 'W301' && r.date === '2026-09-06');
+assertEqual(otDay6.otMinutes, 30, 'OUT 18:30 has 30 minutes OT (full excess when > 15m threshold)');
+
+const otDay7 = result3.records.find(r => r.workerId === 'W301' && r.date === '2026-09-07');
+assertEqual(otDay7.otMinutes, 42, 'OUT 18:42 has 42 minutes OT (full excess when > 15m threshold)');
+
+const otDay8 = result3.records.find(r => r.workerId === 'W301' && r.date === '2026-09-08');
+assertEqual(otDay8.otMinutes, 60, 'OUT 19:00 has 60 minutes OT (full excess when > 15m threshold)');
+
+const officeRec1 = result3.records.find(r => r.workerId === 'W302' && r.date === '2026-09-07');
+assertEqual(officeRec1.otMinutes, 0, 'Office shift OUT 18:42 has 0 OT (no overtime consideration for office shift)');
+
+const officeRec2 = result3.records.find(r => r.workerId === 'W302' && r.date === '2026-09-08');
+assertEqual(officeRec2.otMinutes, 0, 'Office shift OUT 19:00 has 0 OT (no overtime consideration for office shift)');
 
 
 // Test 4: Prompt Section 8 - Overnight Shift Logic (Plant Night 20:30–08:30)
@@ -239,7 +271,7 @@ const nightRec = result4.records[0];
 assertEqual(nightRec.date, '2026-09-15', 'Record is associated with September 15 shift');
 assertEqual(nightRec.actualIn, '20:20', 'Actual IN is 20:20');
 assertEqual(nightRec.actualOut, '09:30', 'Actual OUT is 09:30');
-assertEqual(nightRec.otMinutes, 45, 'OUT 09:30 for 08:30 shift end has exactly 45 minutes OT');
+assertEqual(nightRec.otMinutes, 60, 'OUT 09:30 for 08:30 shift end (60m excess > 15m threshold) has exactly 60 minutes OT');
 assertEqual(nightRec.scheduledMinutes, 720, 'Plant Night scheduled minutes = 720 (12 hours)');
 assertEqual(nightRec.actualWorkingMinutes, 790, 'Actual presence = 13h 10m (790 minutes)');
 
@@ -268,14 +300,14 @@ const result5 = engine.processAttendance(workerFace, shifts, punchesFace);
 const faceDay = result5.records.find(r => r.workerId === 'W501');
 assertEqual(faceDay.actualIn, '09:05', 'First device scan of the day is IN');
 assertEqual(faceDay.actualOut, '18:40', 'Last device scan of the day is OUT');
-assertEqual(faceDay.otMinutes, 25, 'OUT 18:40 for 18:00 shift end has 25 minutes OT');
+assertEqual(faceDay.otMinutes, 0, 'W501 on Office shift has 0 OT');
 assert(!faceDay.hasMissingPunch, 'No missing punch flagged when scans exist at both ends');
 
 const faceNights = result5.records.filter(r => r.workerId === 'W502');
 assertEqual(faceNights.length, 2, 'Two night shifts resolved from four device scans');
 assertEqual(`${faceNights[0].date} ${faceNights[0].actualIn}-${faceNights[0].actualOut}`, '2026-09-15 20:25-08:45', 'Night 1 pairs 20:25 with next-morning 08:45');
 assertEqual(`${faceNights[1].date} ${faceNights[1].actualIn}-${faceNights[1].actualOut}`, '2026-09-16 20:28-09:30', 'Night 2 is not polluted by the 08:45 scan');
-assertEqual(faceNights[1].otMinutes, 45, 'Night 2 OUT 09:30 has 45 minutes OT');
+assertEqual(faceNights[1].otMinutes, 60, 'Night 2 OUT 09:30 (60m excess > 15m threshold) has 60 minutes OT');
 
 
 // Test 6: A worker's own weekly off (from a roster import) overrides the shift's
@@ -406,7 +438,7 @@ const flex = (id, date) => result10.records.find(r => r.workerId === id && r.dat
 const f1a = flex('F1', '2026-09-01');
 assertEqual(`${f1a.actualIn}-${f1a.actualOut} ${f1a.actualWorkingHoursFormatted}`, '11:30-20:15 8h 45m', 'Any arrival time: worked = first to last scan');
 assertEqual(f1a.lateMinutes + f1a.memoAmount, 0, 'No late minutes and no memo on a flexible shift');
-assertEqual(f1a.otMinutes, 30, '8h 45m on an 8h duty (15m threshold) = 30m OT');
+assertEqual(f1a.otMinutes, 45, '8h 45m on an 8h duty (45m excess > 15m threshold) = 45m OT');
 assertEqual(flex('F1', '2026-09-02').isHalfDay, true, '3h of 8h is a Half Day');
 assertEqual(flex('F1', '2026-09-02').memoAmount, 0, 'Flexible half day has no memo');
 const f1c = flex('F1', '2026-09-03');
@@ -415,29 +447,119 @@ assertEqual(`${f1c.isHalfDay} ${f1c.earlyDepartureMinutes}`, 'false 120', '6h of
 const nights = result10.records.filter(r => r.workerId === 'F2');
 assertEqual(nights.length, 2, 'Two night duties -> two records (not four half-records)');
 assertEqual(`${nights[0].date} ${nights[0].actualIn}-${nights[0].actualOut} ${nights[0].actualWorkingHoursFormatted}`, '2026-09-01 22:00-06:00 8h', 'Night duty crossing midnight is one 8h record');
-assertEqual(`${nights[1].date} ${nights[1].actualWorkingHoursFormatted} OT ${nights[1].otMinutes}`, '2026-09-02 9h 30m OT 75', 'Second night: 9h 30m -> 75m OT');
+assertEqual(`${nights[1].date} ${nights[1].actualWorkingHoursFormatted} OT ${nights[1].otMinutes}`, '2026-09-02 9h 30m OT 90', 'Second night: 9h 30m -> 90m OT');
 
 const f3a = flex('F3', '2026-09-03');
-assertEqual(`${f3a.scheduledMinutes} ${f3a.otMinutes} ${f3a.requiredHoursSource}`, '720 5 worker', 'Worker Duty Hrs (12h) override the shift hours: 12h 20m -> 5m OT');
+assertEqual(`${f3a.scheduledMinutes} ${f3a.otMinutes} ${f3a.requiredHoursSource}`, '720 20 worker', 'Worker Duty Hrs (12h) override the shift hours: 12h 20m -> 20m OT');
 assertEqual(f3a.isWeeklyOff, true, 'Worker weekly off (Thursday) applies to flexible duties');
 assertEqual(flex('F3', '2026-09-04').hasMissingPunch, true, 'Single scan: flagged Missing OUT');
 assertEqual(flex('F3', '2026-09-05').actualWorkingHoursFormatted, '11h 55m', 'Next duty starts fresh after a missing OUT');
 
-// Real pattern (18–19 Aug): a stray 23:31 scan after a full day must not swallow the next morning
-const strayResult = engine.processAttendance([{ id: 'S1', name: 'Stray', department: 'Label', shiftId: 'FLEX_8', isActive: true }], flexShifts, [
+// Verification of user requested scenarios:
+// 8h shift: 8h 12m worked (excess 12m <= 15m) -> 0 OT
+// 8h shift: 8h 42m worked (excess 42m > 15m) -> 42m OT
+// 8h shift: 9h 40m worked (excess 100m > 15m) -> 1h 40m (100m) OT
+const userTestWorkers = [{ id: 'U1', name: 'User Test Worker', department: 'Production', shiftId: 'FLEX_8', isActive: true }];
+const userTestPunches = [
+  scan('U1', '2026-09-10', '08:21'), scan('U1', '2026-09-10', '17:03'), // 8h 42m worked -> 42m OT
+  scan('U1', '2026-09-11', '08:26'), scan('U1', '2026-09-11', '18:06'), // 9h 40m worked -> 100m (1h 40m) OT
+  scan('U1', '2026-09-12', '08:00'), scan('U1', '2026-09-12', '16:12')  // 8h 12m worked -> 0m OT
+];
+const userTestResult = engine.processAttendance(userTestWorkers, flexShifts, userTestPunches);
+const u10 = userTestResult.records.find(r => r.date === '2026-09-10');
+assertEqual(u10.actualWorkingHoursFormatted, '8h 42m', '08:21 to 17:03 presence = 8h 42m');
+assertEqual(u10.otMinutes, 42, '8h shift with 8h 42m worked (excess > 15m) gives exactly 42m OT');
+
+const u11 = userTestResult.records.find(r => r.date === '2026-09-11');
+assertEqual(u11.actualWorkingHoursFormatted, '9h 40m', '08:26 to 18:06 presence = 9h 40m');
+assertEqual(u11.otMinutes, 100, '8h shift with 9h 40m worked (excess > 15m) gives exactly 1h 40m (100m) OT');
+
+const u12 = userTestResult.records.find(r => r.date === '2026-09-12');
+assertEqual(u12.actualWorkingHoursFormatted, '8h 12m', '08:00 to 16:12 presence = 8h 12m');
+assertEqual(u12.otMinutes, 0, '8h shift with 8h 12m worked (excess 12m <= 15m) gives 0 OT');
+
+// Real pattern (18–19 Aug): a late 23:31 scan, 3h after the 20:20 scan, is that day's OUT;
+// the next morning is still its own duty
+const lateExit = engine.processAttendance([{ id: 'S1', name: 'Late Exit', department: 'Label', shiftId: 'FLEX_8', isActive: true }], flexShifts, [
   ...['08:25', '12:32', '12:59', '18:04', '18:08', '19:31', '20:20', '23:31'].map(t => scan('S1', '2026-08-18', t)),
   ...['08:25', '12:31', '13:00', '18:03', '18:06', '20:29'].map(t => scan('S1', '2026-08-19', t))
 ]).records.map(r => `${r.date} ${r.actualIn}-${r.actualOut}`);
-assertEqual(strayResult.join(' | '), '2026-08-18 08:25-20:20 | 2026-08-18 23:31---:-- | 2026-08-19 08:25-20:29', 'Stray scan stays apart (Missing OUT); both real days are intact');
+assertEqual(lateExit.join(' | '), '2026-08-18 08:25-23:31 | 2026-08-19 08:25-20:29', 'Late scan the same night is the OUT (one entry for 18 Aug)');
 
-// Real pattern (15–16 Sep): stray 23:29 scan, then a short 08:14–11:59 morning the next day
-const strayShort = engine.processAttendance([{ id: 'S2', name: 'Stray Short', department: 'Label', shiftId: 'FLEX_8', isActive: true }], flexShifts, [
+// Real pattern (15–16 Sep): late 23:29 exit, then a short 08:14–11:59 morning the next day
+const lateExitShort = engine.processAttendance([{ id: 'S2', name: 'Late Exit Short', department: 'Label', shiftId: 'FLEX_8', isActive: true }], flexShifts, [
   ...['08:25', '12:32', '13:01', '17:59', '18:04', '19:17', '20:16', '23:29'].map(t => scan('S2', '2026-09-15', t)),
   ...['08:14', '09:52', '10:00', '11:59'].map(t => scan('S2', '2026-09-16', t))
 ]);
-assertEqual(strayShort.records.map(r => `${r.date} ${r.actualIn}-${r.actualOut}`).join(' | '),
-  '2026-09-15 08:25-20:16 | 2026-09-15 23:29---:-- | 2026-09-16 08:14-11:59', 'A real short duty is not merged into a stray scan');
-assertEqual(strayShort.presenceSummary[0].daysPresent, 2, 'Both 15 and 16 Sep count as days present');
+assertEqual(lateExitShort.records.map(r => `${r.date} ${r.actualIn}-${r.actualOut} ${r.actualWorkingHoursFormatted}`).join(' | '),
+  '2026-09-15 08:25-23:29 15h 04m | 2026-09-16 08:14-11:59 3h 45m', '15 Sep is one entry ending 23:29; 16 Sep stays separate');
+assertEqual(lateExitShort.presenceSummary[0].daysPresent, 2, 'Both 15 and 16 Sep count as days present');
+
+// Real pattern (16–21 Sep): a day duty, then night duties with no scans overnight (arrive ~20:25,
+// next scans ~06:00–09:00). Each night must be one duty, not an arrival + a short morning piece.
+const nightRun = engine.processAttendance([{ id: 'N1', name: 'Night Run', department: 'Label', shiftId: 'FLEX_8', isActive: true }], flexShifts, [
+  ...['08:29', '12:32', '13:03', '20:07'].map(t => scan('N1', '2026-09-16', t)),
+  scan('N1', '2026-09-18', '20:23'),
+  ...['06:56', '07:07', '09:03', '20:24'].map(t => scan('N1', '2026-09-19', t)),
+  ...['06:06', '06:24', '09:11', '20:30'].map(t => scan('N1', '2026-09-20', t)),
+  ...['08:33', '08:40', '08:56'].map(t => scan('N1', '2026-09-21', t))
+]);
+assertEqual(nightRun.records.map(r => `${r.date} ${r.actualIn}-${r.actualOut} ${r.actualWorkingHoursFormatted}`).join(' | '),
+  '2026-09-16 08:29-20:07 11h 38m | 2026-09-18 20:23-09:03 12h 40m | 2026-09-19 20:24-09:11 12h 47m | 2026-09-20 20:30-08:56 12h 26m',
+  'Night duties without overnight scans stay whole (no false half day / missing OUT)');
+assertEqual(nightRun.records.some(r => r.isHalfDay || r.hasMissingPunch), false, 'No false half days or missing punches in the night run');
+assertEqual(nightRun.presenceSummary[0].daysPresent, 4, 'Days present = 4 (16, 18, 19, 20 Sep), not 5');
+
+// Real pattern (30 Aug – 1 Sep): night worker who usually scans only at a midnight break and on leaving;
+// a duty starting after midnight is dated to the evening it began, so no date gets two entries
+const midnightNights = engine.processAttendance([{ id: 'M1', name: 'Midnight Scanner', department: 'Pouch', shiftId: 'FLEX_8', isActive: true }], flexShifts, [
+  scan('M1', '2026-08-30', '00:41'), scan('M1', '2026-08-30', '08:09'),
+  scan('M1', '2026-08-31', '00:42'), scan('M1', '2026-08-31', '08:41'), scan('M1', '2026-08-31', '20:09'),
+  scan('M1', '2026-09-01', '00:20'), scan('M1', '2026-09-01', '08:35')
+]);
+assertEqual(midnightNights.records.map(r => `${r.date} ${r.actualIn}-${r.actualOut}`).join(' | '),
+  '2026-08-29 00:41-08:09 | 2026-08-30 00:42-08:41 | 2026-08-31 20:09-08:35',
+  'Duties starting 00:00–03:59 belong to the previous evening (one entry per date)');
+
+// Real pattern (9–11 Aug): long day duties with no scans between lunch and leaving (12:19 -> 20:36)
+const longDays = engine.processAttendance([{ id: 'D1', name: 'Long Day', department: 'Label', shiftId: 'FLEX_8', isActive: true }], flexShifts, [
+  ...['08:22', '09:46', '12:34', '12:52', '20:30'].map(t => scan('D1', '2026-08-09', t)),
+  ...['08:20', '12:01', '12:19', '20:36'].map(t => scan('D1', '2026-08-10', t)),
+  ...['08:18', '12:35', '13:05', '20:37'].map(t => scan('D1', '2026-08-11', t))
+]);
+assertEqual(longDays.records.map(r => `${r.date} ${r.actualIn}-${r.actualOut}`).join(' | '),
+  '2026-08-09 08:22-20:30 | 2026-08-10 08:20-20:36 | 2026-08-11 08:18-20:37',
+  'An 8h+ afternoon without scans does not split the day (exit scan stays with its duty)');
+
+// Real pattern (Mohan GP3.1011): 12h duty worker on extended night shift (20:15 IN on 16 Sep, intermediate scans up to 12:35, exit at 17:04 on 17 Sep).
+// 17:04 is the OUT punch of 16 Sep, NOT a new shift on 17 Sep with missing OUT.
+const extendedNight = engine.processAttendance([{ id: 'GP3.1011', name: 'Mohan Sharma', department: 'Pouching', shiftId: 'FLEX_8', dutyHours: 12, weeklyOff: 'Thursday', isActive: true }], flexShifts, [
+  scan('GP3.1011', '2026-09-16', '20:15'),
+  scan('GP3.1011', '2026-09-17', '00:16'),
+  scan('GP3.1011', '2026-09-17', '04:16'),
+  scan('GP3.1011', '2026-09-17', '08:06'),
+  scan('GP3.1011', '2026-09-17', '12:35'),
+  scan('GP3.1011', '2026-09-17', '17:04'),
+  scan('GP3.1011', '2026-09-18', '12:42')
+]);
+const mRecords = extendedNight.records.filter(r => r.workerId === 'GP3.1011');
+assertEqual(mRecords.length, 2, 'Extended night shift does not create a false missing-OUT duty on the next day');
+assertEqual(`${mRecords[0].date} ${mRecords[0].actualIn}-${mRecords[0].actualOut}`, '2026-09-16 20:15-17:04', '17:04 is correctly attributed as the OUT punch of 16 Sep');
+assertEqual(mRecords[0].hasMissingPunch, false, '16 Sep has complete IN and OUT punches');
+
+// Real pattern (Piyush GP3.1179): A morning stray scan (08:19) and evening night shift (20:02 to 03:02) on 16 Sep
+// Must NOT produce 2 entries for 16-09-2026. Exactly 1 entry is created for that date (the 20:02-03:02 shift).
+const noDupeDates = engine.processAttendance([{ id: 'GP3.1179', name: 'Piyush Thakor', department: 'Stores', shiftId: 'FLEX_8', dutyHours: 8, isActive: true }], flexShifts, [
+  scan('GP3.1179', '2026-09-15', '08:28'), scan('GP3.1179', '2026-09-15', '17:59'),
+  scan('GP3.1179', '2026-09-16', '08:19'), // stray morning scan
+  scan('GP3.1179', '2026-09-16', '20:02'), scan('GP3.1179', '2026-09-16', '21:11'), scan('GP3.1179', '2026-09-17', '03:02')
+]);
+const p16 = noDupeDates.records.filter(r => r.workerId === 'GP3.1179' && r.date === '2026-09-16');
+assertEqual(p16.length, 1, 'Only 1 entry on 16-09-2026: stray scan does not produce a duplicate date record');
+assertEqual(`${p16[0].actualIn}-${p16[0].actualOut}`, '20:02-03:02', 'The real 20:02-03:02 night shift is preserved for 16 Sep');
+assertEqual(p16[0].hasMissingPunch, false, 'No missing punch on 16 Sep');
+
+
 
 // Test 11: Days present per worker per salary cycle (22nd–21st)
 console.log('\nTest Suite 11: Days Present per Salary Cycle');
@@ -468,6 +590,8 @@ assertEqual(p1Sep.missingPunchDays, 1, 'A day with a missing punch still counts 
 assertEqual(p1Sep.cycleLabel, 'Sep 2026 (22 Aug – 21 Sep)', 'Summary row carries the cycle label');
 assertEqual(present('P1', '2026-10').daysPresent, 1, '22 Sep counts in the Oct cycle');
 assertEqual(present('P2', '2026-09').daysPresent, 2, 'Two night duties crossing midnight = 2 days (not 3)');
+const p2Sep = present('P2', '2026-09');
+assertEqual(`${p2Sep.totalOtMinutes} ${p2Sep.totalOtHoursFormatted}`, '90 1h 30m', 'Presence summary aggregates total OT hours (90m / 1h 30m) from daily attendance');
 const p3 = present('P3', '2026-09');
 assertEqual(`${p3.daysPresent} ${p3.basis} ${p3.missingPunchDays}`, '2 calendar null', 'Worker with no defined shift: counted by calendar days with scans');
 

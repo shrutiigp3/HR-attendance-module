@@ -15,7 +15,8 @@ import {
   addDays,
   getDayOfWeek,
   getCycleKey,
-  getCycleRange
+  getCycleRange,
+  isOfficeShift
 } from './timeUtils.js';
 
 export const DEFAULT_CONFIG = {
@@ -27,12 +28,18 @@ export const DEFAULT_CONFIG = {
   cycleStartDay: 22,                 // Salary cycle runs 22nd–21st (1 = calendar month)
 };
 
-// Flexible shifts: a duty can last at most the required hours plus this allowance (capped at 24h),
-// and a gap of FLEX_REST_GAP_MINUTES between scans means the worker went home. Real scan data
-// shows gaps inside a duty mostly under 7h and rests between duties mostly 11h+.
+// Flexible shifts: a gap of FLEX_REST_GAP_MINUTES between scans usually means the worker went home.
+// Real scan data shows gaps inside a day duty mostly under 7h and rests between duties mostly 11h+;
+// night workers who don't scan overnight are handled by re-joining their arrival (see
+// _groupFlexibleDuties). Scans across such a long gap are only joined within the required hours
+// plus FLEX_DUTY_ALLOWANCE_MINUTES; scans that keep coming (each within the rest gap) extend the duty
+// up to FLEX_MAX_DUTY_MINUTES, e.g. a late 23:29 exit after an 08:25 start.
 const FLEX_DUTY_ALLOWANCE_MINUTES = 6 * 60;
 const FLEX_REST_GAP_MINUTES = 8 * 60;
-// Only fragments this short (a single scan or a quick double tap) are re-joined into one duty
+const FLEX_MAX_DUTY_MINUTES = 22 * 60;
+// Night duties belong to the evening they began: a duty starting 00:00–03:59 is dated the day before
+const FLEX_NIGHT_DATE_CUTOFF = '04:00';
+// A lone arrival is a single scan or a quick double tap within this time
 const FLEX_FRAGMENT_MINUTES = 60;
 
 export class AttendanceCalculationEngine {
@@ -140,6 +147,7 @@ export class AttendanceCalculationEngine {
       const entry = entryFor(worker, r.date, 'shift');
       entry.fullDayByDate.set(r.date, entry.fullDayByDate.get(r.date) || !r.isHalfDay);
       if (r.hasMissingPunch) entry.missingPunchDates.add(r.date);
+      entry.totalOtMinutes = (entry.totalOtMinutes || 0) + (r.otMinutes || 0);
     }
 
     for (const p of punches) {
@@ -151,12 +159,16 @@ export class AttendanceCalculationEngine {
     return [...byWorkerCycle.values()].map(({ fullDayByDate, missingPunchDates, ...entry }) => {
       const daysPresent = fullDayByDate.size;
       const halfDays = [...fullDayByDate.values()].filter(full => !full).length;
+      const totalOtMinutes = entry.totalOtMinutes || 0;
       return {
         ...entry,
         daysPresent,
         halfDays,
         effectiveDays: daysPresent - halfDays / 2,
-        missingPunchDays: entry.basis === 'shift' ? missingPunchDates.size : null
+        missingPunchDays: entry.basis === 'shift' ? missingPunchDates.size : null,
+        totalOtMinutes,
+        totalOtHoursFormatted: formatDuration(totalOtMinutes),
+        totalOtHoursDecimal: (totalOtMinutes / 60).toFixed(2)
       };
     });
   }
@@ -283,16 +295,24 @@ export class AttendanceCalculationEngine {
   /**
    * Flexible shifts have no fixed timings, so a worker's scans are split into duties by time alone;
    * day, night and midnight-crossing duties each become one record, dated by their first scan.
-   * 1. A new duty starts after a rest gap (FLEX_REST_GAP_MINUTES) or once the duty would exceed
-   *    the required hours + FLEX_DUTY_ALLOWANCE_MINUTES.
-   * 2. Two tiny fragments (FLEX_FRAGMENT_MINUTES) within one duty window are re-joined: someone who
-   *    scans only on arrival and departure 9h apart is one duty, while a lone stray scan beside a real
-   *    duty, even a short one, stays apart (flagged Missing OUT) instead of swallowing its scans.
+   * 1. A new segment starts after a rest gap (FLEX_REST_GAP_MINUTES). Scans closer together keep
+   *    extending the duty, so a late exit stays with its day (08:25 … 20:16, 23:29 is one duty
+   *    ending 23:29), up to FLEX_MAX_DUTY_MINUTES (or the duty window, if longer).
+   * 2. Long gaps inside a duty are re-joined when the next segment ends within the duty window
+   *    (required hours + FLEX_DUTY_ALLOWANCE_MINUTES) and the duty began after a real break:
+   *    a) a lone arrival (a scan or quick double tap, FLEX_FRAGMENT_MINUTES) takes the next segment
+   *       as its departure: a night worker scanning 20:23 and then 06:56–09:03 is one duty, as is
+   *       someone who only scans on arrival and departure 9h apart;
+   *    b) a duty still shorter than the required hours takes a lone departure scan: 08:20–12:19
+   *       then 20:36 (no scans all afternoon) is one 08:20–20:36 duty.
+   *    A segment that began only because the duty hit its maximum length (not after a break)
+   *    is never extended this way.
    * Punches must be sorted chronologically (they are, from _sanitizePunches).
    */
   _groupFlexibleDuties(worker, shift, workerPunches) {
     const requiredMinutes = this._requiredMinutes(worker, shift);
     const windowMs = Math.min(24 * 60, requiredMinutes + FLEX_DUTY_ALLOWANCE_MINUTES) * 60 * 1000;
+    const maxDutyMs = Math.max(windowMs, FLEX_MAX_DUTY_MINUTES * 60 * 1000);
     const restMs = FLEX_REST_GAP_MINUTES * 60 * 1000;
     const fragmentMs = FLEX_FRAGMENT_MINUTES * 60 * 1000;
 
@@ -301,8 +321,9 @@ export class AttendanceCalculationEngine {
     let prevAt = 0;
     for (const p of workerPunches) {
       const at = createDateTime(p.date, p.time).getTime();
-      if (!current || at - prevAt >= restMs || at - current.startAt > windowMs) {
-        current = { startAt: at, endAt: at, punches: [] };
+      const afterBreak = !current || at - prevAt >= restMs;
+      if (afterBreak || at - current.startAt > maxDutyMs) {
+        current = { startAt: at, endAt: at, afterBreak, punches: [] };
         segments.push(current);
       }
       current.punches.push(p);
@@ -310,18 +331,54 @@ export class AttendanceCalculationEngine {
       prevAt = at;
     }
 
+    const requiredMs = requiredMinutes * 60 * 1000;
     const duties = [];
     for (const seg of segments) {
       const last = duties[duties.length - 1];
-      const bothFragments = last && last.endAt - last.startAt < fragmentMs && seg.endAt - seg.startAt < fragmentMs;
-      if (bothFragments && seg.endAt - last.startAt <= windowMs) {
+      const canExtend = last && last.afterBreak && seg.endAt - last.startAt <= windowMs;
+      const lastSpan = last ? last.endAt - last.startAt : 0;
+      const lastIsLoneArrival = lastSpan < fragmentMs;
+      const segIsLoneDeparture = seg.endAt - seg.startAt < fragmentMs && lastSpan < requiredMs;
+      if (canExtend && (lastIsLoneArrival || segIsLoneDeparture)) {
         last.punches.push(...seg.punches);
         last.endAt = seg.endAt;
       } else {
         duties.push(seg);
       }
     }
-    return duties.map(d => ({ date: d.punches[0].date, punches: d.punches }));
+    // A duty whose first scan is after midnight but before FLEX_NIGHT_DATE_CUTOFF is the night that
+    // began the previous evening (arrival not scanned), so it is dated to that evening
+    const datedDuties = duties.map(d => {
+      const first = d.punches[0];
+      const date = first.time < FLEX_NIGHT_DATE_CUTOFF ? addDays(first.date, -1) : first.date;
+      return { date, punches: d.punches };
+    });
+
+    // Ensure strictly at most one duty entry per calendar date per worker.
+    // When a worker has multiple duties assigned the same date (e.g. a morning stray scan and an evening full shift),
+    // retain the primary/major duty (longest work span, then punch count) so stray 0m scans don't duplicate the day.
+    const byDate = new Map();
+    for (const d of datedDuties) {
+      if (!byDate.has(d.date)) byDate.set(d.date, []);
+      byDate.get(d.date).push(d);
+    }
+
+    const uniqueDuties = [];
+    for (const [date, list] of byDate.entries()) {
+      if (list.length === 1) {
+        uniqueDuties.push(list[0]);
+      } else {
+        const scored = list.map(d => {
+          const firstAt = createDateTime(d.punches[0].date, d.punches[0].time).getTime();
+          const lastP = d.punches[d.punches.length - 1];
+          const lastAt = createDateTime(lastP.date, lastP.time).getTime();
+          return { duty: d, span: lastAt - firstAt, count: d.punches.length };
+        });
+        scored.sort((a, b) => (b.span - a.span) || (b.count - a.count));
+        uniqueDuties.push(scored[0].duty);
+      }
+    }
+    return uniqueDuties;
   }
 
   /** Required minutes for a flexible shift: the worker's own Duty Hrs if set, else the shift's hours */
@@ -507,24 +564,22 @@ export class AttendanceCalculationEngine {
     // --- OVERTIME (OT) LOGIC ---
     // Rule 7 & 8:
     // Early arrival is NEVER overtime.
-    // OT starts 15 minutes after scheduled shift end (configurable).
-    // OUT <= Shift End + 15 min -> 0 OT
-    // OUT > Shift End + 15 min -> OT = Actual OUT - (Shift End + 15 min)
+    // Office shifts have NO overtime consideration (0 OT).
+    // For plant/manufacturing shifts: OT is considered if working beyond shift end is strictly above the threshold (e.g. > 15 min).
+    // If excess time > 15m (e.g. 42 min), full excess time is counted as OT (42 min OT).
+    // If excess time <= 15m (e.g. 12 min), OT is not considered (0 OT).
+    const isOffice = isOfficeShift(shift);
     let otMinutes = 0;
     let otStatus = '0m';
 
-    if (actualOutDT) {
-      const otStartDT = new Date(shiftEndDT.getTime() + this.config.otThresholdMinutes * 60 * 1000);
-
-      if (actualOutDT > otStartDT) {
-        otMinutes = diffInMinutes(otStartDT, actualOutDT);
+    if (!isOffice && actualOutDT && actualOutDT > shiftEndDT) {
+      const excessMinutes = diffInMinutes(shiftEndDT, actualOutDT);
+      if (excessMinutes > this.config.otThresholdMinutes) {
+        otMinutes = excessMinutes;
         otStatus = formatDuration(otMinutes);
         if (otMinutes > 240) {
           flags.push(`High OT (${formatDuration(otMinutes)})`);
         }
-      } else {
-        otMinutes = 0;
-        otStatus = '0m';
       }
     }
 
@@ -552,6 +607,7 @@ export class AttendanceCalculationEngine {
       department: worker.department,
       shiftId: shift.id,
       shiftName: shift.name,
+      isOfficeShift: isOffice,
       isFlexible: false,
       shiftWindow: `${shift.startTime}–${shift.endTime}`,
       isOvernight,
@@ -642,10 +698,19 @@ export class AttendanceCalculationEngine {
     const isEarlyDeparture = earlyDepartureMinutes > 5;
     if (isEarlyDeparture) flags.push(`Short Hours (${formatDuration(earlyDepartureMinutes)})`);
 
-    // OT: beyond required hours + threshold, e.g. 8h duty, 15m threshold -> 8h 45m worked = 30m OT
-    const otStartMinutes = requiredMinutes + this.config.otThresholdMinutes;
-    const otMinutes = hasWorkedSpan && actualWorkingMinutes > otStartMinutes ? actualWorkingMinutes - otStartMinutes : 0;
-    if (otMinutes > 240) flags.push(`High OT (${formatDuration(otMinutes)})`);
+    // OT: beyond required hours. If excess worked minutes > threshold (e.g. 15m), full excess is counted as OT.
+    // e.g. 8h duty, 8h 42m worked -> 42m excess > 15m -> 42m OT (not 27m).
+    // e.g. 8h duty, 8h 12m worked -> 12m excess <= 15m -> 0m OT.
+    // Office shifts have NO overtime consideration (0 OT).
+    const isOffice = isOfficeShift(shift);
+    let otMinutes = 0;
+    if (!isOffice && hasWorkedSpan && actualWorkingMinutes > requiredMinutes) {
+      const excessMinutes = actualWorkingMinutes - requiredMinutes;
+      if (excessMinutes > this.config.otThresholdMinutes) {
+        otMinutes = excessMinutes;
+        if (otMinutes > 240) flags.push(`High OT (${formatDuration(otMinutes)})`);
+      }
+    }
 
     if (isWeeklyOff && actualWorkingMinutes > 0) flags.push('Weekly Off Worked');
 
@@ -661,6 +726,7 @@ export class AttendanceCalculationEngine {
       department: worker.department,
       shiftId: shift.id,
       shiftName: shift.name,
+      isOfficeShift: isOffice,
       isFlexible: true,
       shiftWindow: `Any time · ${formatDuration(requiredMinutes)}`,
       requiredHoursSource: Number(worker.dutyHours) > 0 ? 'worker' : 'shift',

@@ -552,8 +552,11 @@ code {
 }
 
 /* Data Tables */
+/* Tables scroll inside their own box (at most the screen height below the sticky top bars), so the
+   header row can stay fixed while the rows scroll, in every section */
 .table-responsive {
-  overflow-x: auto;
+  overflow: auto;
+  max-height: calc(100vh - 140px);
   border-radius: var(--radius-md);
   border: 1px solid var(--border-subtle);
 }
@@ -575,6 +578,12 @@ code {
   letter-spacing: 0.04em;
   border-bottom: 1px solid var(--border-subtle);
   white-space: nowrap;
+  /* Header row stays in place while the rows scroll; the shadow keeps its bottom line visible
+     (collapsed borders scroll away with the rows) */
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  box-shadow: inset 0 -1px 0 var(--border-subtle);
 }
 
 .data-table tbody td {
@@ -1261,3 +1270,103 @@ code {
 .border-t { border-top: 1px solid var(--border-subtle); }
 .pt-3 { padding-top: 0.75rem; }
 
+
+/* Holiday calendar */
+.holiday-calendar {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.holiday-calendar .cal-head {
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  padding: 4px 0;
+}
+
+.holiday-calendar .cal-day {
+  min-height: 72px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  vertical-align: top;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.holiday-calendar .cal-day:hover {
+  border-color: var(--border-hover);
+  background: var(--bg-card-hover);
+}
+
+.holiday-calendar .cal-day.is-holiday {
+  border-color: var(--warning);
+  background: var(--warning-glow);
+}
+
+.holiday-calendar .cal-day.is-today .cal-num {
+  color: var(--primary);
+}
+
+.holiday-calendar .cal-blank {
+  visibility: hidden;
+  cursor: default;
+}
+
+.holiday-calendar .cal-num {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.holiday-calendar .cal-name {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--warning);
+  overflow-wrap: anywhere;
+}
+
+/* Salary sheet: ID and Full Name stay visible while scrolling sideways */
+#salary-table .sal-sticky {
+  position: sticky;
+  z-index: 2;
+  background: var(--bg-surface);
+}
+
+#salary-table .sal-sticky-1 {
+  left: 0;
+  min-width: 110px;
+  max-width: 110px;
+}
+
+#salary-table .sal-sticky-2 {
+  left: 110px;
+  min-width: 200px;
+  box-shadow: 1px 0 0 var(--border-subtle);
+}
+
+/* Header cells of the frozen columns stay above everything when scrolling either way */
+#salary-table thead .sal-sticky {
+  z-index: 4;
+}
+
+/* Calculated values show as the box's placeholder, in normal text colour so they read as values */
+#salary-table .sal-input::placeholder {
+  color: var(--text-primary);
+  opacity: 0.85;
+}
+
+/* A calculated value that was typed over */
+#salary-table .sal-input.is-typed {
+  border-color: var(--warning);
+  font-weight: 600;
+}

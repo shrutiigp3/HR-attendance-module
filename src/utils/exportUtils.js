@@ -68,6 +68,8 @@ function toDaysPresentRows(rows) {
     'Half Days': p.basis === 'shift' ? p.halfDays : '',
     'Effective Days (Half Day = 0.5)': p.effectiveDays,
     'Days With Missing Punch': p.missingPunchDays ?? '',
+    'Total OT Hours': p.totalOtHoursFormatted || '0m',
+    'Total OT Hours (Decimal)': p.totalOtHoursDecimal ? Number(p.totalOtHoursDecimal) : 0,
     'Counted By': p.basis === 'shift' ? 'Shift duties' : 'Calendar days with scans (shift not defined)'
   }));
 }
@@ -122,4 +124,52 @@ export function exportMonthlyMemoReport(monthlyStats, format = 'xlsx') {
   } else {
     XLSX.writeFile(wb, filename);
   }
+}
+
+/**
+ * Exports the salary sheet for one salary cycle (sheet name and file name carry the cycle)
+ * @param {Array} rows calculateSalaries() rows
+ * @param {string} cycleLabel e.g. "Sep 2026 (22 Aug – 21 Sep)"
+ * @param {string} format 'xlsx' | 'csv'
+ */
+export function exportSalaryReport(rows, cycleLabel, format = 'xlsx') {
+  // Same column names and order as the company's salary sheet
+  const exportRows = rows.map(r => ({
+    'ID': r.workerId,
+    'Full Name': r.workerName,
+    'Status': r.status,
+    'Department': r.department,
+    'Sub Department': r.subDepartment,
+    'MC / Operation': r.mcOperation,
+    'Salary type': r.salaryType,
+    'Shift Hours': r.shiftHours ?? '',
+    'daily wage': r.dailyWage ?? '',
+    'salary': r.dailyWage == null ? '' : r.salary,
+    'Working Days': r.workingDays,
+    'Attended Days': r.attendedDays,
+    'extra days': r.extraDays,
+    'other time': r.otherTime,
+    'Total Leaves': r.totalLeaves,
+    'Approved Leaves': r.approvedLeaves,
+    'Not App. Leaves': r.notApprovedLeaves,
+    'Salary (attended) + Extra Days': r.salaryAttendedPlusExtra,
+    'Other Amount': r.otherAmount,
+    'Gross Salary': r.grossSalary,
+    'Advance Amount': r.advance,
+    'Loan Amount': r.loan,
+    'Memo Amount': r.memo,
+    'PF Deduction': r.pf,
+    'ES Deduction': r.esi,
+    'Prof Tax Deduction': r.professionalTax,
+    'Net Pay': r.netPay ?? '',
+    'Location': r.location,
+    'Remarks': r.remarks,
+    'Payroll Remarks': r.payrollRemarks
+  }));
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(exportRows), 'Salary');
+  const safeCycle = String(cycleLabel).replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '');
+  const fileExt = format === 'csv' ? 'csv' : 'xlsx';
+  XLSX.writeFile(wb, `Salary_${safeCycle}.${fileExt}`, format === 'csv' ? { bookType: 'csv' } : undefined);
 }

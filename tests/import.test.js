@@ -119,4 +119,14 @@ assertEqual([cn901.name, cn901.department, cn901.shiftId], ['mahesh bhai parmar'
 const gp3999 = store.workers.find(w => w.id === 'GP3.999');
 assertEqual([gp3999.name, gp3999.department, gp3999.shiftId], ['Unknown Worker', 'General', 'OFFICE'], 'New worker from a file without names gets placeholder name/department');
 
+// 7. Removing every worker in a department at once (e.g. contractors)
+console.log('\nTest Suite 7: Remove a Department');
+store.workers = [
+  { id: 'CN.901', name: 'Contractor One', department: 'contractor', shiftId: 'OFFICE', isActive: true },
+  { id: 'GP3.903', name: 'Staff', department: 'Label', shiftId: 'OFFICE', isActive: true },
+  { id: 'CN.902', name: 'Contractor Two', department: 'contractor', shiftId: 'OFFICE', isActive: true }
+];
+store.deleteWorkers(store.workers.filter(w => w.department === 'contractor').map(w => w.id));
+assertEqual(store.workers.map(w => w.id), ['GP3.903'], 'Both contractor workers removed; others kept');
+
 console.log('\n🎉 ALL IMPORT TESTS PASSED! 🎉\n');

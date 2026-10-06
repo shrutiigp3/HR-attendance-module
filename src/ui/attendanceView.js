@@ -7,6 +7,7 @@
 import { store } from '../data/dataStore.js';
 import { exportAttendanceReport, exportDaysPresentReport } from '../utils/exportUtils.js';
 import { shiftNameFromId } from '../utils/excelUtils.js';
+import { formatDuration } from '../engine/timeUtils.js';
 import { modal } from './modalManager.js';
 import { paginate, renderPaginationBar } from './pagination.js';
 
@@ -191,9 +192,11 @@ export function renderAttendanceReport(container) {
               }
 
               // Overtime badge
-              const otBadge = r.otMinutes > 0
-                ? `<span class="badge badge-purple font-semibold">${r.otHoursFormatted}</span>`
-                : `<span class="text-muted">0m</span>`;
+              const otBadge = r.isOfficeShift
+                ? `<span class="text-muted text-xs" title="No overtime consideration for office shift">0m (Office)</span>`
+                : (r.otMinutes > 0
+                  ? `<span class="badge badge-purple font-semibold">${r.otHoursFormatted}</span>`
+                  : `<span class="text-muted">0m</span>`);
 
               // Overnight shift badge
               const overnightTag = r.isOvernight 
@@ -332,13 +335,13 @@ function showAuditTrailModal(record) {
             <li><strong>Required Hours:</strong> ${record.scheduledHoursFormatted} (${record.requiredHoursSource === 'worker' ? "worker's own Duty Hrs" : 'from the shift'})</li>
             <li><strong>Grace / Late:</strong> Not applicable (no start time)</li>
             <li><strong>Half-Day Threshold:</strong> Less than ${record.halfDayThresholdTime} worked</li>
-            <li><strong>OT Threshold:</strong> After ${record.scheduledHoursFormatted} + ${store.config.otThresholdMinutes} min worked</li>
+            <li><strong>OT Threshold:</strong> ${record.isOfficeShift ? 'Not applicable (Office Shift)' : `> ${store.config.otThresholdMinutes} min beyond ${record.scheduledHoursFormatted} worked`}</li>
             ` : `
             <li><strong>Shift Window:</strong> ${record.shiftStart} to ${record.shiftEnd} ${record.isOvernight ? '(Crosses Midnight into next day)' : ''}</li>
             <li><strong>Scheduled Hours:</strong> ${record.scheduledHoursFormatted} (${record.scheduledMinutes} minutes)</li>
             <li><strong>Grace Cutoff (15 min):</strong> ${record.shiftStart} + 15 min</li>
             <li><strong>Half-Day Threshold:</strong> ${record.shiftStart} + ${store.config.halfDayThresholdHours}h = ${record.halfDayThresholdTime}</li>
-            <li><strong>OT Threshold:</strong> ${record.shiftEnd} + ${store.config.otThresholdMinutes} min</li>
+            <li><strong>OT Threshold:</strong> ${record.isOfficeShift ? 'Not applicable (Office Shift)' : `> ${store.config.otThresholdMinutes} min after ${record.shiftEnd}`}</li>
             `}
           </ul>
         </div>
@@ -385,12 +388,12 @@ function showAuditTrailModal(record) {
         <div class="audit-card">
           <div class="audit-step-title">5. Overtime (OT) Evaluation</div>
           <ul class="audit-list">
-            <li><strong>OT Start Benchmark:</strong> ${record.isFlexible ? `After ${record.scheduledHoursFormatted} + ${store.config.otThresholdMinutes}m worked` : `15 minutes after shift end (${record.shiftEnd} + 15m)`}</li>
+            <li><strong>OT Benchmark:</strong> ${record.isOfficeShift ? 'Office Shift — No overtime applicable' : (record.isFlexible ? `After ${record.scheduledHoursFormatted} + ${store.config.otThresholdMinutes}m worked` : `After ${record.shiftEnd} + ${store.config.otThresholdMinutes}m`)}</li>
             <li><strong>Actual Departure:</strong> ${record.actualOut}</li>
             <li><strong>Net Overtime:</strong> <span class="font-bold text-purple">${record.otHoursFormatted}</span> (${record.otMinutes} mins)</li>
-            <li><strong>OT Formula:</strong> ${record.isFlexible ? (record.otMinutes > 0
-              ? `Worked ${record.actualWorkingHoursFormatted} − required ${record.scheduledHoursFormatted} − ${store.config.otThresholdMinutes}m = ${record.otHoursFormatted}`
-              : `Worked ${record.actualWorkingHoursFormatted} is within required ${record.scheduledHoursFormatted} + ${store.config.otThresholdMinutes}m -> 0 OT`) : record.otMinutes > 0 ? `OUT (${record.actualOut}) - Threshold = ${record.otMinutes} mins` : 'OUT <= Shift End + 15m -> 0 OT'}</li>
+            <li><strong>OT Evaluation:</strong> ${record.isOfficeShift ? 'Office shift: No overtime consideration for office shift.' : (record.isFlexible ? (record.otMinutes > 0
+              ? `Worked ${record.actualWorkingHoursFormatted} exceeds required ${record.scheduledHoursFormatted} by ${record.otMinutes}m (> ${store.config.otThresholdMinutes}m threshold) → Full overtime: ${record.otHoursFormatted}`
+              : `Worked ${record.actualWorkingHoursFormatted} is within required ${record.scheduledHoursFormatted} + ${store.config.otThresholdMinutes}m threshold → 0 OT`) : record.otMinutes > 0 ? `Departure at ${record.actualOut} is ${record.otMinutes}m past shift end (${record.shiftEnd}) (> ${store.config.otThresholdMinutes}m threshold) → Full overtime: ${record.otHoursFormatted}` : `Departure within shift end + ${store.config.otThresholdMinutes}m threshold → 0 OT`)}</li>
           </ul>
         </div>
 
@@ -444,11 +447,13 @@ function renderDaysPresent(container) {
   let totalDays = 0;
   let totalHalfDays = 0;
   let totalMissing = 0;
+  let totalOtMins = 0;
   let calendarBasis = 0;
   for (const p of rows) {
     totalDays += p.daysPresent;
     totalHalfDays += p.halfDays;
     totalMissing += p.missingPunchDays || 0;
+    totalOtMins += p.totalOtMinutes || 0;
     if (p.basis === 'calendar') calendarBasis++;
   }
 
@@ -501,6 +506,10 @@ function renderDaysPresent(container) {
           <span class="chip-label">Days With Missing Punch:</span>
           <span class="chip-value text-danger">${totalMissing.toLocaleString()}</span>
         </div>
+        <div class="summary-chip">
+          <span class="chip-label">Total Overtime:</span>
+          <span class="chip-value text-purple">${formatDuration(totalOtMins)}</span>
+        </div>
       </div>
 
       ${calendarBasis ? `<p class="text-secondary text-xs mb-2">${calendarBasis} worker(s) have no defined shift: their days are counted as calendar days with at least one scan (marked "by scans"). Define their shift under Shift Management for exact duty-based counting.</p>` : ''}
@@ -520,11 +529,12 @@ function renderDaysPresent(container) {
               <th class="text-right">Half Days</th>
               <th class="text-right" title="Half day counted as 0.5">Effective Days</th>
               <th class="text-right">Missing Punch Days</th>
+              <th class="text-right">Total OT Hours</th>
             </tr>
           </thead>
           <tbody>
             ${paginationData.pageItems.length === 0 ? `
-              <tr><td colspan="9" class="text-center py-8 text-muted">No workers with attendance match the current cycle and filters.</td></tr>
+              <tr><td colspan="10" class="text-center py-8 text-muted">No workers with attendance match the current cycle and filters.</td></tr>
             ` : paginationData.pageItems.map(p => `
               <tr>
                 <td><code>${p.workerId}</code></td>
@@ -539,6 +549,7 @@ function renderDaysPresent(container) {
                 <td class="text-right font-mono">${p.basis === 'shift' ? p.halfDays : '—'}</td>
                 <td class="text-right font-mono">${p.effectiveDays}</td>
                 <td class="text-right font-mono ${p.missingPunchDays ? 'text-danger' : ''}">${p.missingPunchDays ?? '—'}</td>
+                <td class="text-right font-mono font-bold text-cyan">${p.totalOtHoursFormatted || '0m'}</td>
               </tr>
             `).join('')}
           </tbody>
